@@ -3,7 +3,8 @@
   isolate the notion of filesystem and the file formats from the application,
   since they are really orthogonal to the task."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string  :as str]
+            [gt.graph        :as gr]))
 
 (defn path->graph
   "Returns a graph (a set of Nodes) structure from the given FILE-PATH."
@@ -14,8 +15,8 @@
                            (->> #" "
                                 (str/split current-line)
                                 (map read-string))]
-                       (g/append-connection graph
-                                            source-node-id
-                                            link-node-id)))
-                   #{}
+                       (gr/append-connection graph
+                                             source-node-id
+                                             link-node-id)))
+                   gr/empty-graph
                    (line-seq rdr)))))

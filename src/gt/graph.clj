@@ -1,124 +1,172 @@
 (ns gt.graph
   "Type (and operators) for dealing with the graph structure, which is basically
-  a set of nodes."
+  a set of nodes and their links."
   (:require [clojure.set :as set]))
 
-;; NODE is a relation of ID and LINKS where:
-;;
-;; * ID is a number and
-;;
-;; * LINKS is a set of ID.
-;;
-;; A graph would be a set of Nodes
-(defrecord Node [id links])
+;;; description of the data structures used in this module:
 
-;; DISTANCE is a relation of a NODE-PAIR and a scalar QUANTITY, where:
-;;
-;; * NODE-PAIR is a set consisting of exactly 2 Nodes.
-;;
-;; * QUANTITY is defined by the length of the shortest path of the NODE-PAIR
-(defrecord Distance [node-pair quantity])
+;;; The fundamental entity of the graph system is the node, represented
+;;; by an id (this id is called simply `node` in the application). For
+;;; now the graph is assumed to be undirected and the links between
+;;; nodes are represented as a set of linked nodes.
+;;;
+;;; The graph itself is implemented in terms of a map of
+;;;
+;;; node -> links
+
+;;; The farness calculation involves the distance, which is a tuple
+;;; containing a set of 2 nodes and the quantity of links between these
+;;; two nodes. This quantity is a scalar integer.
+;;;
+;;; The distaces structure is implemented in terms of a map of
+;;;
+;;; set of 2 nodes -> quantity
+
+;;; Farness is a computation that is defined as such: the *farness* of
+;;; a given node *n* is the sum of all distances from each node to
+;;; *n*. Finally, the *closeness* of a node *n* is the inverse of the
+;;; *farness*.
+;;;
+;;; It is represented as a tuple containing an id and a scalar quantity.
+;;;
+;;; The farnesses structure is implemented in terms of a map of
+;;;
+;;; id -> quantity
 
 
-;; FARNESS is a relation of a NODE with a scalar quantity, where:
-;;
-;; * NODE is a regular node
-;;
-;; * QUANTITY is the sum of all distances from each node in a graph to
-;; the NODE
-(defrecord farness  [node quantity])
+;; these empty definitions are here in order to avoid having magic
+;; literals spread in the code, and to provide a single point of
+;; construction, making it easier to swap implementations in the
+;; future (from the current map to another structure).
+(def empty-graph
+  {})
 
-(defn- append-link-node-id
-  "Updates the links attribute of a given NODE. Auxiliary function to
-  `append-connection`"
-  [node link-id]
-  (assoc node :links (conj (:links node) link-id)))
+(def empty-distances
+  {})
 
-(defn- get-node
-  "Returns a node with a given ID in the GRAPH. Returns nil if the node is
-  missing."
-  [id graph]
-  (->> graph
-       (set/select #(= (:id %) id) ,,)
-       first))
+(def empty-farnesses
+  {})
+
+;;; graph creation functions section
+
+(defn create-directed-link
+  "this updates the graph with a connection (source-node -> target-node). This
+  is the base function to build a graph incrementally."
+  [graph source-node target-node]
+  (assoc graph source-node
+         (if (contains? graph source-node)
+           (conj (get graph source-node) target-node)
+           #{target-node})))
+
+(defn append-undirected-link
+  "this updates the graph with a connection (NODE-A <-> NODE-B). The point of
+  this function is to provide an utility to build undirected graphs."
+  [graph node-a node-b]
+  (-> graph
+      (create-directed-link node-a node-b)
+      (create-directed-link node-b node-a)))
+
+;;; section end
+
+;;; distances section
 
 (defn- search-distance
-  "Returns a scalar integer value as the distance between the SOURCE-NODE and
-  the TARGET-NODE. The implementation for now is a breadth first algorithm[1].
+  "Returns a scalar integer value as the distance between the nodes represented
+  by the SOURCE-NODE and the TARGET-NODE in a given GRAPH. If there is no
+  linkage, returns false. The implementation for now is a breadth first
+  algorithm[1].
 
   [1] https://en.wikipedia.org/wiki/Breadth-first_search "
   [source-node target-node graph]
-  (let [target-id (:id target-node)
-        get-next-nodes (fn [current-next-nodes-ids current-id]
-                         (if-let [node (get-node current-id graph)]
-                           (set/union current-next-nodes-ids
-                                      (:links node))
-                           current-next-nodes-ids))]
-    (loop [current-nodes-ids  (:links source-node)
-           next-nodes-ids     #{}
+  (let [get-next-links (fn [current-next-links current-node]
+                         (if-let [links (get graph current-node)]
+                           (set/union current-next-links links)
+                           current-next-links))]
+    (loop [current-links      (get graph source-node)
+           next-links         #{}
            searched-so-far    #{}
            distance           1]
-      (if-let [current-id (first current-nodes-ids)]
-        (cond (= current-id target-id) distance
-              (contains? searched-so-far current-id)
-              (recur (next current-nodes-ids)
-                     next-nodes-ids
+      (if-let [current-node (first current-links)]
+        (cond (= current-node target-node) distance
+              (contains? searched-so-far current-node)
+              (recur (next current-links)
+                     next-links
                      searched-so-far
                      distance)
               :otherwise
-              (recur (next current-nodes-ids)
-                     (get-next-nodes next-nodes-ids current-id)
-                     (conj searched-so-far current-id)
+              (recur (next current-links)
+                     (get-next-links next-links current-node)
+                     (conj searched-so-far current-node)
                      distance))
-        (if (empty? next-nodes-ids)
+        (if (empty? next-links)
           false
-          (recur next-nodes-ids
+          (recur next-links
                  #{}
                  searched-so-far
                  (inc distance)))))))
 
 (defn- node->distances
-  "Returns a set distances from a NODE to all nodes in the SUBGRAPH. The
-  COMPLETE-GRAPH is used to calculate the distance between nodes."
-  [node subgraph complete-graph]
-  (loop [graph subgraph
-         distances #{}]
-    (if-let [current-target-node (first graph)]
-      (recur (next graph)
-             (conj distances
-                   (Distance. #{node current-target-node}
-                              (search-distance node
+  "Returns the distances from a a NODE to all the other NODES. The
+  COMPLETE-GRAPH is used to properly calculate these distances."
+  [node target-nodes complete-graph]
+  (reduce (fn [distances-so-far current-target-node]
+            (if-let [distance (search-distance node
                                                current-target-node
-                                               complete-graph))))
-      distances)))
+                                               complete-graph)]
+              (assoc distances-so-far #{node current-target-node} distance)
+              distances-so-far))
+          empty-distances
+          target-nodes))
 
-(defn append-connection
-  "This updates the GRAPH with a connection (SOURCE-NODE-ID ->
-  LINK-NODE-ID). If there is an existing node (marked by the same id), this
-  creates a new node with the link id conjoined to the links property. The
-  point of this function is to provide a way to build a graph incrementally."
-  [graph source-node-id link-node-id]
-  (if-let [source-node (get-node source-node-id graph)]
-    (-> graph
-        (disj ,, source-node)
-        (conj ,, (append-link-node-id source-node link-node-id)))
-    (conj graph (Node. source-node-id (hash-set link-node-id)))))
-
-(defn graph->distances
+(defn- graph->distances
   "Creates Distances from a GRAPH. These distances enable the sorting and the
   stablishment of centrality."
   [graph]
-  (loop [distances #{}
-         subgraph graph]
-    (println "Graph size -> " (count subgraph)
-             "Dists size -> " (count distances))
+  (loop [distances empty-distances
+         subgraph (keys graph)]
     (if-let [current-node (first subgraph)]
-      (recur (set/union distances
-                        (node->distances current-node
-                                         (next subgraph)
-                                         graph))
+      (recur (merge distances
+                    (node->distances current-node
+                                     (next subgraph)
+                                     graph))
              (next subgraph))
       distances)))
 
-;; (defn distances->farnesses [distances]
-;;   )
+;;; section end
+
+;;; farness section
+
+(defn- distances->farnesses
+  "Computes the farnesses out of the DISTANCES structure. This structure is the
+  basis of sorting the nodes of a graph by their closeness/farness."
+  [distances]
+  (letfn [(add-farness [node current-distance-pair farnesses-so-far]
+            (+ (get distances current-distance-pair)
+               (get farnesses-so-far node 0)))]
+    (reduce
+     (fn [farnesses-so-far current-distance-pair]
+       (let [node-a (first current-distance-pair)
+             node-b (second current-distance-pair)]
+         (-> farnesses-so-far
+             (assoc node-a (add-farness node-a
+                                        current-distance-pair
+                                        farnesses-so-far))
+             (assoc node-b (add-farness node-b
+                                        current-distance-pair
+                                        farnesses-so-far)))))
+     empty-farnesses
+     (keys distances))))
+
+(defn sort-graph-by-closeness
+  "Main sorting of the graph, putting the nodes with more closeness first. These
+  nodes are usually assumed to hold more influence in the graph. WARNING: this
+  function will do all computations involved in getting to the farnesses."
+  [graph]
+  (->> graph
+       graph->distances
+       distances->farnesses
+       (sort (fn [[_ farness-a] [_ farness-b]]
+               (compare farness-a farness-b)))
+       (map first)))
+
+;;; section end
