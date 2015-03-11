@@ -49,6 +49,9 @@
 
 ;;; graph creation functions section
 
+;;; TODO: change this into a map of indexes -> ids and an adjacency
+;;; matrix
+
 (defn create-directed-link
   "this updates the graph with a connection (source-node -> target-node). This
   is the base function to build a graph incrementally."
