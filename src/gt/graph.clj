@@ -134,6 +134,20 @@
 
 ;;; section end
 
+;;; degree section
+
+(defn sort-by-degree
+  "Type of sorting of a GRAPH by the degree centrality, which is defined as the
+  number of links incident upon a node. In the case of a unweighted graph, a
+  link is incident from and upon a node at the same time."
+  [graph]
+  (->> graph
+       (sort (fn [[_ links-a] [_ links-b]]
+               (compare (count links-a) (count links-b))))
+       (map first)))
+
+;;; section end
+
 ;;; farness section
 
 (defn- distances->farnesses
@@ -157,16 +171,16 @@
      empty-farnesses
      (keys distances))))
 
-(defn sort-graph-by-closeness
-  "Main sorting of the graph, putting the nodes with more closeness first. These
-  nodes are usually assumed to hold more influence in the graph. WARNING: this
-  function will do all computations involved in getting to the farnesses."
+(defn sort-by-closeness
+  "Type of sorting of a GRAPH by closeness. WARNING: this function will do all
+  computations involved in getting to the farnesses."
   [graph]
   (->> graph
        graph->distances
        distances->farnesses
        (sort (fn [[_ farness-a] [_ farness-b]]
                (compare farness-a farness-b)))
-       (map first)))
+       (map first)
+       reverse))
 
 ;;; section end
