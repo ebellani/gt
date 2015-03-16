@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+  <appender name="rollingLog" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!--See also
+        http://logback.qos.ch/manual/appenders.html#RollingFileAppender-->
+    <file>logs/gt.log</file>
+    <encoder>
+      <pattern>%-5p %d{yyyy/MM/dd HH:mm:ss,SS} %c - %m%n</pattern>
+    </encoder>
+<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <!-- rollover monthly -->
+      <FileNamePattern>logs/gt.%d{yyyy-MM}.%i.log</FileNamePattern>
+      <!-- up to 6 months-->
+      <maxHistory>
+        6
+      </maxHistory>
+      <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+        <!-- rollover also whenever the file size reaches 100MB -->
+        <maxFileSize>100MB</maxFileSize>
+      </timeBasedFileNamingAndTriggeringPolicy>
+    </rollingPolicy>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="rollingLog"/>
+  </root>
+</configuration>

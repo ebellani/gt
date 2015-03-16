@@ -60,5 +60,5 @@
 
 (deftest graph-farnesses
   (testing "The farnesses of the nodes in the graph"
-    (is (= (sort-graph-by-closeness test-graph)
+    (is (= (map first (graph->sorted-closeness test-graph))
            '(2 1 0 3 4 5)))))

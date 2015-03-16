@@ -33,7 +33,6 @@
 ;;;
 ;;; id -> quantity
 
-
 ;; these empty definitions are here in order to avoid having magic
 ;; literals spread in the code, and to provide a single point of
 ;; construction, making it easier to swap implementations in the
@@ -47,29 +46,15 @@
 (def empty-farnesses
   {})
 
-;;; graph creation functions section
+;;; graph querying section
 
-;;; TODO: change this into a map of indexes -> ids and an adjacency
-;;; matrix
+(defn contains-undirected-link? [graph node-a node-b]
+  (and (contains? graph node-a)
+       (contains? graph node-b)
+       (contains? (get graph node-a) node-b)
+       (contains? (get graph node-b) node-a)))
 
-(defn create-directed-link
-  "this updates the graph with a connection (source-node -> target-node). This
-  is the base function to build a graph incrementally."
-  [graph source-node target-node]
-  (assoc graph source-node
-         (if (contains? graph source-node)
-           (conj (get graph source-node) target-node)
-           #{target-node})))
-
-(defn append-undirected-link
-  "this updates the graph with a connection (NODE-A <-> NODE-B). The point of
-  this function is to provide an utility to build undirected graphs."
-  [graph node-a node-b]
-  (-> graph
-      (create-directed-link node-a node-b)
-      (create-directed-link node-b node-a)))
-
-;;; section end
+;;; end section
 
 ;;; distances section
 
@@ -79,7 +64,7 @@
   linkage, returns false. The implementation for now is a breadth first
   algorithm[1].
 
-  [1] https://en.wikipedia.org/wiki/Breadth-first_search "
+  [1] https://en.wikipedia.org/wiki/Breadth-first_search"
   [source-node target-node graph]
   (let [get-next-links (fn [current-next-links current-node]
                          (if-let [links (get graph current-node)]
@@ -90,7 +75,7 @@
            searched-so-far    #{}
            distance           1]
       (if-let [current-node (first current-links)]
-        (cond (= current-node target-node) distance
+        (cond (= current-node target-node) distance ;; <- end recursion
               (contains? searched-so-far current-node)
               (recur (next current-links)
                      next-links
@@ -102,7 +87,7 @@
                      (conj searched-so-far current-node)
                      distance))
         (if (empty? next-links)
-          false
+          false ;; <- end recursion with failure to find target
           (recur next-links
                  #{}
                  searched-so-far
@@ -174,16 +159,52 @@
      empty-farnesses
      (keys distances))))
 
-(defn sort-by-closeness
-  "Type of sorting of a GRAPH by closeness. WARNING: this function will do all
-  computations involved in getting to the farnesses."
+(defn farnesses->sorted-closeness
+  "Sorts the FARNESSES by the inverse of their quantity, making the more
+  'relevant' nodes come first."
+  [farnesses]
+  (sort (fn [[_ farness-a] [_ farness-b]]
+          (compare farness-a farness-b))
+        farnesses))
+
+(defn graph->farnesses
+  "Creates the farnesses out of a GRAPH. This computation is usually heavy,
+  since it involves calculating all the distances of the graph."
   [graph]
   (->> graph
        graph->distances
-       distances->farnesses
-       (sort (fn [[_ farness-a] [_ farness-b]]
-               (compare farness-a farness-b)))
-       (map first)
-       reverse))
+       distances->farnesses))
+
+(def graph->sorted-closeness
+  (comp farnesses->sorted-closeness graph->farnesses))
+
+;;; section end
+
+;;; formatting section
+
+(defn farnesses->html [farnesses]
+  [:ol (map (fn [[id _]] [:li id])
+            farnesses)])
+
+;;; section end
+
+;;; graph edition section
+
+(defn create-directed-link
+  "this updates the graph with a connection (source-node -> target-node). This
+  is the base function to build a graph incrementally."
+  [graph source-node target-node]
+  (assoc graph source-node
+         (if (contains? graph source-node)
+           (conj (get graph source-node) target-node)
+           #{target-node})))
+
+(defn append-undirected-link
+  "this updates the graph with a connection (NODE-A <-> NODE-B). The point of
+  this function is to provide an utility to build undirected graphs."
+  [graph node-a node-b]
+  (-> graph
+      (create-directed-link node-a node-b)
+      (create-directed-link node-b node-a)))
 
 ;;; section end
