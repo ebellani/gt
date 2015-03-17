@@ -14,7 +14,7 @@
 ;;;
 ;;; node -> links
 
-;;; The farness calculation involves the distance, which is a tuple
+;;; The closeness calculation involves the distance, which is a tuple
 ;;; containing a set of 2 nodes and the quantity of links between these
 ;;; two nodes. This quantity is a scalar integer.
 ;;;
@@ -22,14 +22,13 @@
 ;;;
 ;;; set of 2 nodes -> quantity
 
-;;; Farness is a computation that is defined as such: the *farness* of
+;;; Closeness is a computation that is defined as such: the *closeness* of
 ;;; a given node *n* is the sum of all distances from each node to
-;;; *n*. Finally, the *closeness* of a node *n* is the inverse of the
-;;; *farness*.
+;;; *n*, inverted.
 ;;;
 ;;; It is represented as a tuple containing an id and a scalar quantity.
 ;;;
-;;; The farnesses structure is implemented in terms of a map of
+;;; The closenesses structure is implemented in terms of a map of
 ;;;
 ;;; id -> quantity
 
@@ -43,7 +42,7 @@
 (def empty-distances
   {})
 
-(def empty-farnesses
+(def empty-closenesses
   {})
 
 ;;; graph querying section
@@ -106,7 +105,7 @@
           empty-distances
           target-nodes))
 
-(defn- graph->distances
+(defn graph->distances
   "Creates Distances from a GRAPH. These distances enable the sorting and the
   stablishment of centrality."
   [graph]
@@ -136,55 +135,89 @@
 
 ;;; section end
 
-;;; farness section
+;;; closenesses section
 
-(defn- distances->farnesses
-  "Computes the farnesses out of the DISTANCES structure. This structure is the
-  basis of sorting the nodes of a graph by their closeness/farness."
+(defn distances->closenesses
+  "Computes the closenesses out of the DISTANCES structure. This structure is one
+  of the basis of sorting the nodes of a graph."
   [distances]
   (letfn [(add-farness [node current-distance-pair farnesses-so-far]
             (+ (get distances current-distance-pair)
                (get farnesses-so-far node 0)))]
-    (reduce
-     (fn [farnesses-so-far current-distance-pair]
-       (let [node-a (first current-distance-pair)
-             node-b (second current-distance-pair)]
-         (-> farnesses-so-far
-             (assoc node-a (add-farness node-a
-                                        current-distance-pair
-                                        farnesses-so-far))
-             (assoc node-b (add-farness node-b
-                                        current-distance-pair
-                                        farnesses-so-far)))))
-     empty-farnesses
-     (keys distances))))
+    (->> distances
+         keys
+         (reduce
+          (fn [farnesses-so-far current-distance-pair]
+            (let [node-a (first current-distance-pair)
+                  node-b (second current-distance-pair)]
+              (-> farnesses-so-far
+                  (assoc node-a (add-farness node-a
+                                             current-distance-pair
+                                             farnesses-so-far))
+                  (assoc node-b (add-farness node-b
+                                             current-distance-pair
+                                             farnesses-so-far)))))
+          empty-closenesses)
+         (map (fn [[node farness]] [node (/ 1 farness)]))
+         (into {}))))
 
-(defn farnesses->sorted-closeness
-  "Sorts the FARNESSES by the inverse of their quantity, making the more
-  'relevant' nodes come first."
-  [farnesses]
-  (sort (fn [[_ farness-a] [_ farness-b]]
-          (compare farness-a farness-b))
-        farnesses))
+(defn invalidate-node
+  "Returns a the CLOSENESSES structure 'updated' (actually a new structure) as
+  such:
 
-(defn graph->farnesses
-  "Creates the farnesses out of a GRAPH. This computation is usually heavy,
-  since it involves calculating all the distances of the graph."
-  [graph]
-  (->> graph
-       graph->distances
-       distances->farnesses))
+  - The INVALID-NODE quantity should be zero.
 
-(def graph->sorted-closeness
-  (comp farnesses->sorted-closeness graph->farnesses))
+  - Nodes directly referred by the INVALID-NODE should
+  have their score halved.
+
+  - Quantities of nodes indirectly referred by the INVALID-NODE should be
+  multiplied by a coefficient F:
+
+  F(k) = (1 - (1/2)^k)
+
+  where k is the shortest path from the INVALID-NODE to the node in
+  question. This is calculated using the DISTANCES as a cache.
+
+  The point of this function is to be able to represent distrust of a node. This
+  function assumes the GRAPH, where the invalid links are taken from, is
+  undirected."
+  [node closenesses distances graph]
+  (let [invalid-node-quantity 0
+        invalid-direct-links (get graph node)
+        indirect-node-modification
+        (fn [distance]
+          (- 1 (Math/pow (/ 1 2) distance)))]
+    (->> closenesses
+         (map
+          (fn [[current-node quantity]]
+            [current-node
+             (cond (= current-node node)
+                   invalid-node-quantity
+                   (contains? invalid-direct-links current-node)
+                   (/ quantity 2)
+                   :otherwise
+                   (-> distances
+                       (get #{current-node node})
+                       indirect-node-modification
+                       (* quantity)))]))
+         (into {}))))
 
 ;;; section end
 
 ;;; formatting section
 
-(defn farnesses->html [farnesses]
-  [:ol (map (fn [[id _]] [:li id])
-            farnesses)])
+(defn- sort-closenesses
+  "Sorts the CLOSENESSES by the inverse of their quantity, making the more
+  'relevant' nodes come first."
+  [closenesses]
+  (sort (fn [[_ closeness-a] [_ closeness-b]]
+          (compare closeness-b closeness-a))
+        closenesses))
+
+(defn closenesses->html [closenesses]
+  [:ol (->> closenesses
+            sort-closenesses
+            (map (fn [[id _]] [:li id])))])
 
 ;;; section end
 
